@@ -29,20 +29,21 @@ class ClosTopo(Topo):
             cor = self.addSwitch('c' + str(count))
             coreA.append(cor)
             count=count+1
-            for agr in range(fanout):
-                agre= self.addSwitch('a' + str(count))
-                agreA.append(agre)
-                count=count+1
-                "Set up Edge level, Connection Aggregation - Edge level "
-                for e in range(fanout):
-                    edg= self.addSwitch('e' + str(count))
-                    edgA.append(edg)
-                    count=count+1
-                    "Set up Host level, Connection Edge - Host level "
-                    for h in range(fanout):
-                        hst= self.addHost('h' + str(count))
-                        hstA.append(hst)
-                        count=count+1
+        for agr in range(fanout*cores):
+            agre= self.addSwitch('a' + str(count))
+            agreA.append(agre)
+            count=count+1
+        "Set up Edge level, Connection Aggregation - Edge level "
+        for e in range(fanout*cores*fanout):
+            edg= self.addSwitch('e' + str(count))
+            edgA.append(edg)
+            count=count+1
+        "Set up Host level, Connection Edge - Host level "
+        count=1
+        for h in range(fanout*cores*fanout*fanout):
+            hst= self.addHost('h' + str(count))
+            hstA.append(hst)
+            count=count+1
         "Create links"
         for c in range(len(coreA)):
             for agr in range(len(agreA)):

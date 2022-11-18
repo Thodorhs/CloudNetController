@@ -164,8 +164,8 @@ class CloudNetController (EventMixin):
                 #FIREWALL functionality
                 if self.firewall_capability:
                     try:
-                        #WRITE YOUR CODE HERE!
-                        pass
+                        if self.firewall_policies[srcip] != self.firewall_policies[dstip]:
+                            self.drop_packets(dstip,packet)
                     except KeyError:
                         log.info("IPs not covered by policy!")
                         return
@@ -191,8 +191,8 @@ class CloudNetController (EventMixin):
                 #FIREWALL functionality
                 if self.firewall_capability:
                     try:
-                        #WRITE YOUR CODE HERE!
-                        pass
+                        if self.firewall_policies[srcip] != self.firewall_policies[dstip]:
+                            self.drop_packets(dstip,packet)
                     except KeyError:
                         return
 
@@ -223,8 +223,8 @@ class CloudNetController (EventMixin):
             #FIREWALL functionality
             if self.firewall_capability:
                 try:
-                    #WRITE YOUR CODE HERE!
-                    pass
+                    if self.firewall_policies[srcip] != self.firewall_policies[dstip]:
+                        self.drop_packets(dstip,packet)
                 except KeyError:
                     log.info("IPs not covered by policy!")
                     return
@@ -280,13 +280,95 @@ class CloudNetController (EventMixin):
 
 
     def install_end_to_end_IP_path(self, event, dst_dpid, final_port, packet):
-        #WRITE YOUR CODE HERE!
-        pass
+        log.info("Starting end to end path to %s..." % str(dst_dpid))
+        msg=of.ofp_match()
+        msg.dl_type=0x800
+        msg.nw_src=packet.next.srcip
+        msg.nw_dst=packet.next.dstip
+        if event.dpid==dst_dpid:
+            self.switches[dst_dpid].install_output_flow_rule(final_port, msg, idle_timeout=10)
+            self.switches[dst_dpid].send_packet(final_port, packet)
+            return
+        if packet.find("tcp"):
+            path=self.switches[event.dpid]._paths_per_proto[dst_dpid][6]
+            msg.nw_proto=6
+        elif packet.find("udp"):
+            path=self.switches[event.dpid]._paths_per_proto[dst_dpid][17]
+        elif packet.find("icmp"):
+            path=self.switches[event.dpid]._paths_per_proto[dst_dpid][17]
+        path=random.choice(path)
+        path=reversed(path)
+
+        for i in path:
+            if i==dst_dpid:
+                self.switches[i].install_output_flow_rule(final_port, msg, idle_timeout=10)
+            else:
+                self.switches[i].install_output_flow_rule(self.sw_sw_ports[(i,prev)], msg, idle_timeout=10)
+            prev=i
+        self.switches[dst_dpid].send_packet(final_port, packet)
 
         
     def install_migrated_end_to_end_IP_path(self, event, dst_dpid, dst_port, packet, forward_path=True):
-        #WRITE YOUR CODE HERE!
-        pass
+        if forward_path == True: 
+            log.info("Starting FORWARD migration end to end path to %s..." % str(dst_dpid))
+            msg=of.ofp_match()
+            msg.dl_type=0x800
+            msg.nw_src=packet.next.srcip #match srcip of sending host
+            msg.nw_dst=self.old_migrated_IPs[packet.next.dstip] #match dstip of new migrated host
+            if event.dpid==dst_dpid: #if im in last switch
+                self.switches[dst_dpid].install_forward_migration_rule(dst_port, self.arpmap[packet.next.dstip][0], self.old_migrated_IPs[packet.next.dstip], msg, idle_timeout=10) #install rule to match msg and modify headers to new migrated host
+                self.switches[dst_dpid].send_forward_migrated_packet(dst_port, self.arpmap[packet.next.dstip][0], self.old_migrated_IPs[packet.next.dstip], packet_data=packet) #forward packet to new migrated host
+                return
+            if packet.find("tcp"):
+                path=self.switches[event.dpid]._paths_per_proto[dst_dpid][6]
+                msg.nw_proto=6
+            elif packet.find("udp"):
+                path=self.switches[event.dpid]._paths_per_proto[dst_dpid][17]
+            elif packet.find("icmp"):
+                path=self.switches[event.dpid]._paths_per_proto[dst_dpid][17]
+            path=random.choice(path)
+            path=reversed(path)
+
+            for i in path:
+                if i==dst_dpid:
+                    self.switches[i].install_output_flow_rule(dst_port, msg, idle_timeout=10) #install flow rule for last switch src,new migrated dst -> outport
+                elif i==event.dpid:
+                    msg.nw_dst=packet.next.dstip # match packets going to old ip (e.g h1)
+                    self.switches[i].install_forward_migration_rule(self.sw_sw_ports[(i,prev)], self.arpmap[self.old_migrated_IPs[packet.next.dstip]][0], self.old_migrated_IPs[packet.next.dstip], msg, idle_timeout=10)#install rule to match msg and modify headers to new migrated host
+                else:
+                    self.switches[i].install_output_flow_rule(self.sw_sw_ports[(i,prev)], msg, idle_timeout=10) #install flow rule to match packet headers like received.... and send packet 
+                prev=i
+            self.switches[dst_dpid].send_forward_migrated_packet(dst_port, self.arpmap[self.old_migrated_IPs[packet.next.dstip]][0], self.old_migrated_IPs[packet.next.dstip], packet_data=packet) #instruct last switch to forward packet to new migrated host
+        else:
+            log.info("Starting REVERSE migration end to end path to %s..." % str(dst_dpid))
+            msg=of.ofp_match()
+            msg.dl_type=0x800
+            msg.nw_src=self.new_migrated_IPs[packet.next.srcip] #match srcip of new migrated host
+            msg.nw_dst=packet.next.dstip #match dstip receiving host
+            if event.dpid==dst_dpid: #if im in last switch
+                self.switches[dst_dpid].install_reverse_migration_rule(dst_port, self.arpmap[self.new_migrated_IPs[packet.next.srcip]][0], self.new_migrated_IPs[packet.next.srcip], msg, idle_timeout=10)
+                self.switches[dst_dpid].send_reverse_migrated_packet(dst_port, self.arpmap[packet.next.srcip][0], self.new_migrated_IPs[packet.next.srcip], packet_data=packet)
+                return
+            if packet.find("tcp"):
+                path=self.switches[event.dpid]._paths_per_proto[dst_dpid][6]
+                msg.nw_proto=6
+            elif packet.find("udp"):
+                path=self.switches[event.dpid]._paths_per_proto[dst_dpid][17]
+            elif packet.find("icmp"):
+                path=self.switches[event.dpid]._paths_per_proto[dst_dpid][17]
+            path=random.choice(path)
+            path=reversed(path)
+
+            for i in path:
+                if i==dst_dpid:
+                    self.switches[i].install_output_flow_rule(dst_port, msg, idle_timeout=10) #install flow rule for last switch new migrated src,dst -> outport
+                elif i==event.dpid:
+                    msg.nw_src=packet.next.srcip
+                    self.switches[i].install_reverse_migration_rule(self.sw_sw_ports[(i,prev)], self.arpmap[self.new_migrated_IPs[packet.next.srcip]][0], self.new_migrated_IPs[packet.next.srcip], msg, idle_timeout=10)#install rule to match msg and modify headers to new migrated host
+                else:
+                    self.switches[i].install_output_flow_rule(self.sw_sw_ports[(i,prev)], msg, idle_timeout=10)#install flow rule to match packet headers like received..... and send packet 
+                prev=i
+            self.switches[dst_dpid].send_reverse_migrated_packet(dst_port, self.arpmap[self.new_migrated_IPs[packet.next.srcip]][0], self.new_migrated_IPs[packet.next.srcip], packet_data=packet) #instruct last switch to forward packet to host
 
 
     def handle_migration(self, old_IP, new_IP):
@@ -445,8 +527,10 @@ class SwitchWithPaths (EventMixin):
             self._listeners = None
 
     def flood_on_switch_edge(self, packet, no_flood_ports):
-        #WRITE YOUR CODE HERE!
-        pass
+        l=list(self.connection.ports)
+        for i in range(len(l)-1):
+            if l[i] not in no_flood_ports:
+                self.send_packet(l[i],packet_data=packet)
 
     def send_packet(self, outport, packet_data=None):
         msg = of.ofp_packet_out(in_port=of.OFPP_NONE)
@@ -455,8 +539,21 @@ class SwitchWithPaths (EventMixin):
         self.connection.send(msg)
 
     def send_arp_reply(self, packet, dst_port, req_mac):
-        #WRITE YOUR CODE HERE!
-        pass
+        arp_reply = arp()
+        arp_reply.hwsrc = req_mac
+        arp_reply.hwdst = packet.src
+        arp_reply.opcode = arp.REPLY
+        arp_reply.protosrc = packet.next.protodst
+        arp_reply.protodst = packet.payload.protosrc
+        ether = ethernet()
+        ether.type = ethernet.ARP_TYPE
+        ether.dst = packet.src
+        ether.src = req_mac
+        ether.payload = arp_reply
+        msg = of.ofp_packet_out()
+        msg.data=ether.pack()
+        msg.actions.append(of.ofp_action_output(port = dst_port))
+        self.connection.send(msg)
 
     def install_output_flow_rule(self, outport, match, idle_timeout=0, hard_timeout=0):
         msg=of.ofp_flow_mod()
@@ -477,27 +574,70 @@ class SwitchWithPaths (EventMixin):
         self.connection.send(msg)
 
     def send_forward_migrated_packet(self, outport, dst_mac, dst_ip, packet_data=None):
-        #WRITE YOUR CODE HERE!
-        pass
+        msg = of.ofp_packet_out()
+
+        packet_data.payload.dstip=dst_ip
+        packet_data.dst=dst_mac
+        
+        msg.data = packet_data
+        msg.actions.append(of.ofp_action_output(port=outport))
+        self.connection.send(msg)
+
 
     def send_reverse_migrated_packet(self, outport, src_mac, src_ip, packet_data=None):
-        #WRITE YOUR CODE HERE!
-        pass
+        msg = of.ofp_packet_out()
+
+        packet_data.payload.srcip=src_ip
+        packet_data.src=src_mac
+        
+        msg.data = packet_data
+        msg.actions.append(of.ofp_action_output(port=outport))
+        self.connection.send(msg)
+
         
     def install_forward_migration_rule(self, outport, dst_mac, dst_ip, match, idle_timeout=0, hard_timeout=0):
-        #WRITE YOUR CODE HERE!
-        pass
+        msg=of.ofp_flow_mod()
+        msg.idle_timeout = idle_timeout
+        msg.hard_timeout = hard_timeout
+        msg.command = of.OFPFC_MODIFY_STRICT
+        msg.match = match
+        msg.actions.append(of.ofp_action_nw_addr.set_dst(IPAddr(dst_ip)))
+        msg.actions.append(of.ofp_action_dl_addr.set_dst(EthAddr(dst_mac)))
+        msg.actions.append(of.ofp_action_output(port=outport))
+        self.connection.send(msg)
+
 
     def install_reverse_migration_rule(self, outport, src_mac, src_ip, match, idle_timeout=0, hard_timeout=0):
-        #WRITE YOUR CODE HERE!
-        pass
+        msg=of.ofp_flow_mod()
+        msg.idle_timeout = idle_timeout
+        msg.hard_timeout = hard_timeout
+        msg.command = of.OFPFC_MODIFY_STRICT
+        msg.match = match
+        msg.actions.append(of.ofp_action_nw_addr.set_src(IPAddr(src_ip)))
+        msg.actions.append(of.ofp_action_dl_addr.set_src(EthAddr(src_mac)))
+        msg.actions.append(of.ofp_action_output(port=outport))
+        self.connection.send(msg)
 
 
 def ShortestPaths(switches, adjs):
-    #WRITE YOUR CODE HERE!
-    pass
+    g=nx.Graph()
+    for i in switches:
+        g.add_node(i)
+        for j in adjs[i]:
+            g.add_edge(i, j)
 
-    
+    for i in g.nodes():
+        for j in g.nodes():
+            if i==j:
+                continue
+            try:
+                pat = list(nx.all_shortest_paths(g,i,j))
+                switches[i].appendPaths(j,pat)        
+            except nx.NetworkXNoPath:
+                return False
+    return True        
+
+
 def str_to_bool(str):
     assert(str in ['True', 'False'])
     if str=='True':

@@ -32,7 +32,4 @@ between hosts to test TCP
 - Firewall configuration file supported (e.g even-odd id hosts).
 - Host migration configuration file supported (e.g h1 after 5 minuites of run time will migrate to h5 for maintanance purposes).
 
-![This is an image](https://github.com/Thodorhs/CloudNetController/images/ex.png)
-
-
-
+![e.g](https://github.com/Thodorhs/CloudNetController/images/ex.png)

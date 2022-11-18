@@ -4,25 +4,29 @@ A SDN application on top of POX controller.  Emulating the behaviour of a multi-
 You need mininet to create topologies and pox as a controler with openflow switches. The experiment can be done by pinging from a host to a server.
 
 # Run
-place CloudNetController.py, firewall_policies.csv, migration_events.csv under ~/home/mininet/pox/ext
+place **CloudNetController.py, firewall_policies.csv, migration_events.csv** under **~/home/mininet/pox/ext**
 
-place clos_topo.py, tcp_receiver.py, tcp_sender.py, udp_receiver.py, udp_sender.py under ~/home/mininet
+place **clos_topo.py, tcp_receiver.py, tcp_sender.py, udp_receiver.py, udp_sender.py** under **~/home/mininet**
 
 in ~/home/mininet/pox/ext
-./pox.py openflow.discovery CloudNetController --firewall_capability=True --migration_capability=True
+**./pox.py openflow.discovery CloudNetController --firewall_capability=True --migration_capability=True**
 
 in ~/home/mininet
-sudo mn -c
-sudo python clos_topo.py -c 2 -f 2
+**sudo mn -c**
+**sudo python clos_topo.py -c 2 -f 2**
 
-then wait for pings to take place (let it finish we need ARPS to learn)
+then **WAIT** for pings to take place (let it finish we need ARPS to learn)
 
 after that ping between hosts or run:
-sudo python udp_receiver.py 10.0.0.8 49160 5
-sudo python udp_sender.py 10.0.0.8 49160
+
+**sudo python udp_receiver.py 10.0.0.8 49160 5**
+**sudo python udp_sender.py 10.0.0.8 49160**
+
 between hosts to test UDP or,
-sudo python tcp_receiver.py 10.0.0.8 49160 5
-sudo python tcp_sender.py 10.0.0.8 49160
+
+**sudo python tcp_receiver.py 10.0.0.8 49160 5**
+**sudo python tcp_sender.py 10.0.0.8 49160**
+
 between hosts to test TCP
 
 # Brief explanation
